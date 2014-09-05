@@ -2334,11 +2334,11 @@ Expression *Expression::checkReadModifyWrite(TOK rmwOp, Expression *ex)
  * lifetime of the stack frame.
  */
 
-void Expression::checkEscape()
+void Expression::checkEscape(Scope *sc)
 {
 }
 
-void Expression::checkEscapeRef()
+void Expression::checkEscapeRef(Scope *sc)
 {
 }
 
@@ -5098,7 +5098,7 @@ int SymOffExp::isBool(int result)
     return result ? true : false;
 }
 
-void SymOffExp::checkEscape()
+void SymOffExp::checkEscape(Scope *sc)
 {
     VarDeclaration *v = var->isVarDeclaration();
     if (v)
@@ -5187,7 +5187,7 @@ Expression *VarExp::semantic(Scope *sc)
     return this;
 }
 
-void VarExp::checkEscape()
+void VarExp::checkEscape(Scope *sc)
 {
     VarDeclaration *v = var->isVarDeclaration();
     if (v)
@@ -5203,7 +5203,7 @@ void VarExp::checkEscape()
     }
 }
 
-void VarExp::checkEscapeRef()
+void VarExp::checkEscapeRef(Scope *sc)
 {
     VarDeclaration *v = var->isVarDeclaration();
     if (v)
@@ -5403,11 +5403,11 @@ Expression *TupleExp::semantic(Scope *sc)
     return this;
 }
 
-void TupleExp::checkEscape()
+void TupleExp::checkEscape(Scope *sc)
 {
     for (size_t i = 0; i < exps->dim; i++)
     {   Expression *e = (*exps)[i];
-        e->checkEscape();
+        e->checkEscape(sc);
     }
 }
 
@@ -9190,9 +9190,9 @@ Expression *AddrExp::semantic(Scope *sc)
     return optimize(WANTvalue);
 }
 
-void AddrExp::checkEscape()
+void AddrExp::checkEscape(Scope *sc)
 {
-    e1->checkEscapeRef();
+    e1->checkEscapeRef(sc);
 }
 
 /************************************************************/
@@ -9247,9 +9247,9 @@ Expression *PtrExp::semantic(Scope *sc)
     return this;
 }
 
-void PtrExp::checkEscapeRef()
+void PtrExp::checkEscapeRef(Scope *sc)
 {
-    e1->checkEscape();
+    e1->checkEscape(sc);
 }
 
 int PtrExp::isLvalue()
@@ -9768,7 +9768,7 @@ Lfail:
 }
 
 
-void CastExp::checkEscape()
+void CastExp::checkEscape(Scope *sc)
 {   Type *tb = type->toBasetype();
     if (tb->ty == Tarray && e1->op == TOKvar &&
         e1->type->toBasetype()->ty == Tsarray)
@@ -10070,14 +10070,41 @@ Lagain:
     return this;
 }
 
-void SliceExp::checkEscape()
+void SliceExp::checkEscape(Scope *sc)
 {
-    e1->checkEscape();
+    //printf("SliceExp::checkEscape %s\n", toChars());
+
+    if (type->toBasetype()->ty == Tarray && e1->type->toBasetype()->ty == Tsarray)
+    {
+        for (Expression *e = e1;;)
+        {
+            if (e->op == TOKvar)
+            {
+                VarDeclaration *v = ((VarExp *)e)->var->isVarDeclaration();
+
+                FuncDeclaration *fdv = v->toParent()->isFuncDeclaration();
+                FuncDeclaration *fdsc = sc->func;
+
+                if (fdv && fdsc && fdv == fdsc && !v->isDataseg() &&
+                        !(v->storage_class & (STCref | STCout)))
+                    error("escaping reference to local static array '%s'", e1->toChars());
+                break;
+            }
+            else if (e->op == TOKdotvar)
+            {
+                e = ((DotVarExp *)e)->e1;
+                if (e->type->ty == Tclass) break;
+            }
+            else break;
+        }
+    }
+
+    e1->checkEscape(sc);
 }
 
-void SliceExp::checkEscapeRef()
+void SliceExp::checkEscapeRef(Scope *sc)
 {
-    e1->checkEscapeRef();
+    e1->checkEscapeRef(sc);
 }
 
 int SliceExp::checkModifiable(Scope *sc, int flag)
@@ -10446,14 +10473,14 @@ Expression *CommaExp::semantic(Scope *sc)
     return this;
 }
 
-void CommaExp::checkEscape()
+void CommaExp::checkEscape(Scope *sc)
 {
-    e2->checkEscape();
+    e2->checkEscape(sc);
 }
 
-void CommaExp::checkEscapeRef()
+void CommaExp::checkEscapeRef(Scope *sc)
 {
-    e2->checkEscapeRef();
+    e2->checkEscapeRef(sc);
 }
 
 int CommaExp::isLvalue()
@@ -13692,16 +13719,16 @@ Expression *CondExp::modifiableLvalue(Scope *sc, Expression *e)
     return toLvalue(sc, this);
 }
 
-void CondExp::checkEscape()
+void CondExp::checkEscape(Scope *sc)
 {
-    e1->checkEscape();
-    e2->checkEscape();
+    e1->checkEscape(sc);
+    e2->checkEscape(sc);
 }
 
-void CondExp::checkEscapeRef()
+void CondExp::checkEscapeRef(Scope *sc)
 {
-    e1->checkEscapeRef();
-    e2->checkEscapeRef();
+    e1->checkEscapeRef(sc);
+    e2->checkEscapeRef(sc);
 }
 
 
